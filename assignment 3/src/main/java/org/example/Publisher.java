@@ -25,38 +25,33 @@ public class Publisher extends Thread {
     String broker = "tcp://127.0.0.1:1883";
     String username = "admin";
     String password = "password";
-    int qos = -1;
-    int delay = -1;
     int id;
-    Boolean run = Boolean.FALSE;
     Stack<PubCommand> commandStack = new Stack<>();
 
     public Publisher(int id) {
         this.id = id;
     }
 
-    public void reset() {
-        run = Boolean.FALSE;
-        delay = -1;
-        qos = -1;
-    }
 
     public void run() {
         String clientid = String.format("pub-%s", id);
         try {
             MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
-            client.setCallback(new PublisherCallBack(this));
+            client.setCallback(new PublisherCallBack(commandStack));
             client.subscribe("request/qos", 0);
             client.subscribe("request/delay", 0);
             client.subscribe("request/instancecount", 0);
 
 
             System.out.printf("I am publisher %d\n", id);
+            PubCommand currentCommand;
             while (true) {
                 Thread.sleep(1);
-                if (qos != -1 && delay != -1 && run.equals(Boolean.TRUE)) {
+                if (!commandStack.isEmpty()) {
+                    currentCommand = commandStack.pop();
+                    if (currentCommand.instanceCount < id) {continue;}
                     System.out.println(id + ": meesage received");
-                    String destination = String.format("counter/%d/%d/%d", id, qos, delay);
+                    String destination = String.format("counter/%d/%d/%d", id, currentCommand.qos, currentCommand.delay);
 
                     long startTime = System.currentTimeMillis();
                     long duration = 60 * 1000;
@@ -65,12 +60,10 @@ public class Publisher extends Thread {
                     while (System.currentTimeMillis() - startTime < duration) {
                         MqttTopic mqttTopic =  client.getTopic(destination);
                         mqttTopic.publish(Integer.toString(counter).getBytes(), 0, false);
-                        Thread.sleep(delay);
+                        Thread.sleep(currentCommand.delay);
                         counter += 1;
                     }
-
                     System.out.println(id + " finished publishing");
-                    this.reset();
                 }
 
             }

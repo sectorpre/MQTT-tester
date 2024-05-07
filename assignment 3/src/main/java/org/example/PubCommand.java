@@ -10,4 +10,14 @@ public class PubCommand {
         this.delay = delay;
         this.instanceCount = instanceCount;
     }
+
+    public PubCommand() {
+        qos = -1;
+        delay= -1;
+        instanceCount = -1;
+    }
+
+    public boolean isFilled() {
+        return qos != -1 && delay != -1 && instanceCount != -1;
+    }
 }

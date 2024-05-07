@@ -4,11 +4,15 @@ import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 
+import java.util.Stack;
+
 public class PublisherCallBack implements MqttCallback {
-    public PublisherCallBack(Publisher client) {
-        this.client = client;
+    public PublisherCallBack(Stack<PubCommand> commandStack) {
+        this.commandStack = commandStack;
+        currentCommand = new PubCommand();
     }
-    Publisher client;
+    Stack<PubCommand> commandStack;
+    PubCommand currentCommand;
 
     public void connectionLost(Throwable cause) {
         System.out.println("connectionLost: " + cause.getMessage());
@@ -26,23 +30,14 @@ public class PublisherCallBack implements MqttCallback {
     public void messageArrived(String topic, MqttMessage message) {
         //System.out.println("topic received " + topic);
         switch (topic) {
-            case "request/qos" -> client.qos = Integer.parseInt(new String(message.getPayload()));
-            case "request/delay" -> client.delay = Integer.parseInt(new String(message.getPayload()));
-            case "request/instancecount" -> {
-                int instance = Integer.parseInt(new String(message.getPayload()));
-                if (instance >= client.id) {
-                    client.run = Boolean.TRUE;
-                } else {
-                    client.qos = -1;
-                    client.delay = -1;
-                }
-            }
+            case "request/qos" -> currentCommand.qos = Integer.parseInt(new String(message.getPayload()));
+            case "request/delay" -> currentCommand.delay = Integer.parseInt(new String(message.getPayload()));
+            case "request/instancecount" -> {currentCommand.instanceCount = Integer.parseInt(new String(message.getPayload()));}
         }
-        //System.out.printf("qos:%d delay:%d run:%s\n", client.qos,client.delay,client.run);
-
-//        System.out.println("topic: " + topic);
-//        System.out.println("Qos: " + message.getQos());
-//        System.out.println("message content: " + new String(message.getPayload()));
+        if (currentCommand.isFilled()) {
+            commandStack.push(currentCommand);
+            currentCommand = new PubCommand();
+        }
 
     }
 
