@@ -28,7 +28,6 @@ public class PublisherCallBack implements MqttCallback {
      *             client.subscribe("request/instancecount", qos);
      * */
     public void messageArrived(String topic, MqttMessage message) {
-        //System.out.println("topic received " + topic);
         switch (topic) {
             case "request/qos" -> currentCommand.qos = Integer.parseInt(new String(message.getPayload()));
             case "request/delay" -> currentCommand.delay = Integer.parseInt(new String(message.getPayload()));

@@ -26,44 +26,64 @@ public class Analyser {
     static String username = "admin";
     static String password = "password";
     static String clientid = "analyser";
-    static State curentState;
 
-    enum State {
-        SUBBING, PUBBING
-    }
-
-    public static void subscribeTopics( int qos, int delay, int instanceCount, MqttClient client) throws MqttException {
-        for (int k = 1; k <= instanceCount; k++) {
+    public static void subscribeTopics( PubCommand pubc, MqttClient client) throws MqttException {
+        for (int k = 1; k <= pubc.instanceCount; k++) {
             //counter/<instance>/<qos>/<delay>
-            String topic = String.format("counter/%d/%d/%d",k, qos,delay);
-            client.subscribe(topic, qos); //TODO change this to pub qos
+            String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
+            client.subscribe(topic, pubc.qos); //TODO change this to pub qos
         }
     }
-    public static void publishCommand(int qos, int  delay,int instance, MqttClient client) throws MqttException {
-        client.publish("request/qos", Integer.toString(qos).getBytes(), 1, Boolean.FALSE);
-        client.publish("request/delay", Integer.toString(delay).getBytes(), 1, Boolean.FALSE);
-        client.publish("request/instancecount", Integer.toString(instance).getBytes(), 1, Boolean.FALSE);
+
+    public static void unSubscribeTopics( PubCommand pubc, MqttClient client) throws MqttException {
+        for (int k = 1; k <= pubc.instanceCount; k++) {
+            //counter/<instance>/<qos>/<delay>
+            String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
+            client.unsubscribe(topic); //TODO change this to pub qos
+        }
     }
 
+    public static void publishCommand(PubCommand pubc, MqttClient client) throws MqttException {
+        client.publish("request/qos", Integer.toString(pubc.qos).getBytes(), 1, Boolean.FALSE);
+        client.publish("request/delay", Integer.toString(pubc.delay).getBytes(), 1, Boolean.FALSE);
+        client.publish("request/instancecount", Integer.toString(pubc.instanceCount).getBytes(), 1, Boolean.FALSE);
+    }
+
+    public static void receiveStats(MqttClient client, PubCommand command) throws InterruptedException, MqttException {
+        AnalystStat stat = new AnalystStat();
+
+        client.setCallback(new AnalyserCallBack(stat));
+        subscribeTopics(command, client);
+        publishCommand(command, client);
+
+        Thread.sleep(Publisher.duration);
+
+        unSubscribeTopics(command,client);
+        stat.printAllStats();
+
+    }
 
     public static void main(String[] args) {
         // Create a Scanner object to read input from the command line
-        System.out.printf("running for delay:%d, QoS:%d, instance-count:%d", 0,0,1);
-
-        //delay: (0ms, 1ms, 2ms, 4ms)
-        //QoS: (0, 1 or 2)
-        //instance-count: (1,2,3,4,5)
-        //Broker QoS: (1,2,3)
+        // MQTT QoS level (0, 1 or 2), and with a
+        // requested delay(0ms, 1ms, 2ms, 4ms) for 60 seconds.
 
         try {
-            MqttClient client = createClient(broker, clientid, username, password);
-            client.setCallback(new AnalyserCallBack());
-            subscribeTopics(0, 0, 1, client);
-            publishCommand(0,0,1,client);
+            MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
+            for (int k = 1; k <= 5; k++) {
+                for (int qos = 0; qos < 3; qos ++) {
+                    for (int delay = 0; delay < 5; delay ++) {
+                        if (delay == 3) {continue;}
+                        System.out.printf("running for delay:%d, QoS:%d, instance-count:%d\n", delay,qos,k);
+                        PubCommand currPubCommand = new PubCommand(qos, delay, k);
+                        receiveStats(client, currPubCommand);}
+                }
 
-//            client.disconnect();
-//            client.close();
+            }
+
         } catch (MqttException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
     }

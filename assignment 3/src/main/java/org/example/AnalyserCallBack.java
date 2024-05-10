@@ -4,8 +4,11 @@ import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 
+
 public class AnalyserCallBack implements MqttCallback {
-    public AnalyserCallBack() {
+    AnalystStat stat;
+    public AnalyserCallBack(AnalystStat stat) {
+        this.stat = stat;
     }
 
     public void connectionLost(Throwable cause) {
@@ -13,10 +16,19 @@ public class AnalyserCallBack implements MqttCallback {
     }
 
     public void messageArrived(String topic, MqttMessage message) {
-        System.out.println("topic received: " + topic + " message: " + new String(message.getPayload()));
+        Integer count = Integer.parseInt(new String(message.getPayload()));
+        stat.totaMessageCount += 1;
+
+        int currentPub = Integer.parseInt(topic.split("/")[1]) - 1;
+        if (stat.eachPubCount[currentPub] > count) {
+            System.out.println("out of order =======================");
+            stat.rateOfMessageLoss += 1;
+        }
+
+        stat.eachPubCount[currentPub] = count;
+        stat.timeStamps.get(currentPub).push(System.currentTimeMillis());
     }
 
     public void deliveryComplete(IMqttDeliveryToken token) {
-        //System.out.println("deliveryComplete---------" + token.isComplete());
     }
 }
