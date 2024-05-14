@@ -16,11 +16,9 @@ import java.util.Stack;
  * */
 public class AnalystStat {
     int totaMessageCount = 0;
-    int[] eachPubCount = {0, 0, 0, 0, 0};
+    int[] eachPubCount = {-1, -1, -1, -1, -1};
     List<Stack<Long>> timeStamps = new ArrayList<>();
     long startTime;
-
-
 
     int rateOfReceive; // total average rate of messages you actually receive from all publishers across the* period [messages/second].
     int rateOfMessageLoss; // The rate of message loss you see [percentage].* (how many messages did you see, versus how many should you have seen)
@@ -35,12 +33,13 @@ public class AnalystStat {
         startTime = System.currentTimeMillis();
     }
 
-    public void printAllStats() {
-        System.out.println("messages per second" + this.getRateOfReceive(10000/1000));
-        System.out.println("number of out of count: " + this.rateOfOutOfOrder);
-        System.out.println(this.getAllMedians());
-        System.out.println("number of messages lost: " + this.getMessageLoss());
-        System.out.println("=========================");
+    public String printAllStats() {
+        return String.format("%d,%.2f,%s%.2f",
+                this.getRateOfReceive((int) (Publisher.duration/1000)),
+                ((double) this.rateOfOutOfOrder/(double) this.totaMessageCount),
+                this.getAllMedians(),
+                this.getMessageLoss());
+
     }
 
     // time in second
@@ -49,28 +48,26 @@ public class AnalystStat {
     }
 
     public String getAllMedians() {
-        int i = 1;
-
-        String median = "";
+        String returnVal = "";
         for (var p: timeStamps) {
-           if (!p.isEmpty()) {
-               median = String.format("%smedian for pub %d->%.2fms, ", median, i, getMedianPublisher(p));
-           }
-           i += 1;
+            returnVal = String.format("%s%.2f,",returnVal,getMedianPublisher(p));
         }
-        return median;
+        //System.out.println(returnVal);
+        return returnVal;
     }
 
-    public int getMessageLoss() {
+    public double getMessageLoss() {
         int totalMessagesSent = 0;
         for (var p: eachPubCount) {
             totalMessagesSent += p + 1;
         }
-        return totalMessagesSent - totaMessageCount;
+        //System.out.printf("sent messages:%d - received messages:%d ", totalMessagesSent, totaMessageCount);
+        return ((double) (totalMessagesSent - totaMessageCount) / totalMessagesSent);
     }
 
 
     public double getMedianPublisher(Stack<Long> stackTime) {
+        if (stackTime.isEmpty()) {return -1;}
         List<Long> differenceList = new ArrayList<>();
 
         Long previous = (long) -1;

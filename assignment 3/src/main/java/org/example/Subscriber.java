@@ -1,37 +1,25 @@
 package org.example;
 
 import org.eclipse.paho.client.mqttv3.*;
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import java.util.Queue;
 import java.util.Stack;
 
-/**
- * A Publisher will first subscribe (listen) to a set of ‘request’ topics, namely request/qos,
- * request/delay and request/instancecount. When it sees new values for these, it will start
- * publishing accordingly.
- * o You will have 5 instances of a Publisher running at the same time, called pub-1 to pub-5. These will
- * help stress the broker (and network, if you have separate computers). The ‘instancecount’ will tell
- * you how many publishers should be active, while the rest should keep quiet.
- * o Each Publisher will send a sequence of simple message to the broker, namely an incrementing
- * counter (0, 1, 2, 3, …). It will publish those messages to the broker at a requested MQTT QoS level
- * (0, 1 or 2), and with a requested delay between messages (0ms, 1ms, 2ms, 4ms) for 60 seconds.
- * o Each Publisher will publish to the topic counter/<instance>/<qos>/<delay>, so e.g. counter/1/0/4
- * is the messages coming from Publisher-instance-1 at qos=0 and delay=4.
- * o After it has finished its 60sec burst of messages, each Publisher should go back to listening to the
- * ‘request’ topics for the next round of instructions.
- * */
-
-public class Publisher extends Thread {
-    static long duration = 60 * 1000;
+import static org.example.MQTTclient.setOptions;
 
 
-    String broker = "tcp://127.0.0.1:1883";
+public class Subscriber extends Thread {
+    static long duration = 10 * 1000;
+
+
+    String broker = "tcp://iot.eclipse.org:1883";
     String username = "admin";
     String password = "password";
     int id;
     Stack<PubCommand> commandStack = new Stack<>();
 
-    public Publisher(int id) {
+    public Subscriber(int id) {
         this.id = id;
     }
 
@@ -85,8 +73,28 @@ public class Publisher extends Thread {
 
     }
 
-    public static void main(String[] args) {
-        Publisher pub1 = new Publisher(1);
-        pub1.run();
+    public static void main(String[] args) throws MqttException {
+        String broker = "tcp://127.0.0.1:1883";
+        String username = "admin";
+        String password = "public";
+
+        MqttClient client = MQTTclient.createClient(broker, "pub-1", username, password);
+        client.setCallback(new MqttCallback() {
+            public void messageArrived(String topic, MqttMessage message) throws Exception {
+                System.out.println("topic: " + topic + " || qos: " + message.getQos() + " || message content: " + new String(message.getPayload()));
+            }
+
+            public void connectionLost(Throwable cause) {
+                System.out.println("connectionLost: " + cause.getMessage());
+            }
+
+            public void deliveryComplete(IMqttDeliveryToken token) {
+                System.out.println("deliveryComplete: " + token.isComplete());
+            }
+        });
+        String topic = "$SYS/#";
+        int qos = 2;
+        System.out.println("test");
+        client.subscribe(topic, qos);
     }
 }

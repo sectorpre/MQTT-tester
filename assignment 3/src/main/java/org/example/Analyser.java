@@ -3,6 +3,8 @@ package org.example;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttException;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.Scanner;
 
 import static org.example.MQTTclient.createClient;
@@ -27,11 +29,11 @@ public class Analyser {
     static String password = "password";
     static String clientid = "analyser";
 
-    public static void subscribeTopics( PubCommand pubc, MqttClient client) throws MqttException {
+    public static void subscribeTopics( PubCommand pubc, MqttClient client, Integer subscribeQos) throws MqttException {
         for (int k = 1; k <= pubc.instanceCount; k++) {
             //counter/<instance>/<qos>/<delay>
             String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
-            client.subscribe(topic, pubc.qos); //TODO change this to pub qos
+            client.subscribe(topic, subscribeQos); //TODO change this to pub qos
         }
     }
 
@@ -39,7 +41,7 @@ public class Analyser {
         for (int k = 1; k <= pubc.instanceCount; k++) {
             //counter/<instance>/<qos>/<delay>
             String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
-            client.unsubscribe(topic); //TODO change this to pub qos
+            client.unsubscribe(topic);
         }
     }
 
@@ -49,17 +51,17 @@ public class Analyser {
         client.publish("request/instancecount", Integer.toString(pubc.instanceCount).getBytes(), 1, Boolean.FALSE);
     }
 
-    public static void receiveStats(MqttClient client, PubCommand command) throws InterruptedException, MqttException {
+    public static String receiveStats(MqttClient client, PubCommand command, Integer subscribeQos) throws InterruptedException, MqttException {
         AnalystStat stat = new AnalystStat();
 
         client.setCallback(new AnalyserCallBack(stat));
-        subscribeTopics(command, client);
+        subscribeTopics(command, client, subscribeQos);
         publishCommand(command, client);
 
         Thread.sleep(Publisher.duration);
 
         unSubscribeTopics(command,client);
-        stat.printAllStats();
+        return stat.printAllStats();
 
     }
 
@@ -67,21 +69,41 @@ public class Analyser {
         // Create a Scanner object to read input from the command line
         // MQTT QoS level (0, 1 or 2), and with a
         // requested delay(0ms, 1ms, 2ms, 4ms) for 60 seconds.
+        String csvFile = "data.csv";
+        try (FileWriter writer = new FileWriter(csvFile)) {
+            String[] columns = new String[]{"delay", "qos", "instance-count", "subscribe qos", "average messages per second", "percentage of out of count",
+                    "med 1", "med 2", "med 3", "med 4", "med 5", "percentage of messages lost"};
+            writer.append(String.join(",", columns));
+            writer.append("\n");
+        }
+        catch (IOException e) {
+        }
 
         try {
-            MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
-            for (int k = 1; k <= 5; k++) {
-                for (int qos = 0; qos < 3; qos ++) {
-                    for (int delay = 0; delay < 5; delay ++) {
-                        if (delay == 3) {continue;}
-                        System.out.printf("running for delay:%d, QoS:%d, instance-count:%d\n", delay,qos,k);
-                        PubCommand currPubCommand = new PubCommand(qos, delay, k);
-                        receiveStats(client, currPubCommand);}
+                MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
+                for (int k = 1; k <= 5; k++) {
+                    for (int qos = 0; qos < 3; qos ++) {
+                        for (int subscribeQos = 0; subscribeQos < 3; subscribeQos ++) {
+                            for (int delay = 0; delay < 5; delay ++) {
+                                if (delay == 3) {continue;}
+                                System.out.printf("running for delay:%d, QoS:%d, instance-count:%d, subscribe qos:%d\n", delay,qos,k, subscribeQos);
+                                PubCommand currPubCommand = new PubCommand(qos, delay, k);
+
+                                String outputString = receiveStats(client, currPubCommand, subscribeQos);
+
+                                try (FileWriter writer = new FileWriter(csvFile, true)) {
+                                    writer.append(String.format("%d,%d,%d,%d,%s\n", delay, qos, k ,subscribeQos, outputString));
+                                }
+                                catch (IOException e) {
+                                    System.out.println("unable to write to file error");
+                                }
+                            }
+                        }
+                    }
+
                 }
-
             }
-
-        } catch (MqttException e) {
+        catch (MqttException e) {
             throw new RuntimeException(e);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
