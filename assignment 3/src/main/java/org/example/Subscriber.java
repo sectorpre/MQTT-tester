@@ -3,7 +3,10 @@ package org.example;
 import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.Queue;
+import java.util.Scanner;
 import java.util.Stack;
 
 import static org.example.MQTTclient.setOptions;
@@ -76,12 +79,31 @@ public class Subscriber extends Thread {
     public static void main(String[] args) throws MqttException {
         String broker = "tcp://127.0.0.1:1883";
         String username = "admin";
-        String password = "public";
+        String password = "ioSDYQY62u";
 
-        MqttClient client = MQTTclient.createClient(broker, "pub-1", username, password);
+        System.out.println("please input ip address or hostname");
+        Scanner in = new Scanner(System.in);
+        String s = in.nextLine();
+        if (!s.isEmpty()) {broker = String.format("tcp://%s:1883", s);}
+
+        MqttClient client = MQTTclient.createClient(broker, "syslog", username, password);
+        try (FileWriter writer = new FileWriter("syslog.csv")) {
+            writer.append("system time,topic,qos,message content\n");
+        }
+        catch (IOException e) {
+            System.out.println("unable to write to file error");
+        }
         client.setCallback(new MqttCallback() {
+            String csvFile = "syslog.csv";
+  
             public void messageArrived(String topic, MqttMessage message) throws Exception {
-                System.out.println("topic: " + topic + " || qos: " + message.getQos() + " || message content: " + new String(message.getPayload()));
+                String log = String.format("%s,%s,%d,%s",java.time.LocalDateTime.now(),topic,message.getQos(),new String(message.getPayload()));
+                try (FileWriter writer = new FileWriter(csvFile, true)) {
+                    writer.append(String.format("%s\n", log));
+                }
+                catch (IOException e) {
+                    System.out.println("unable to write to file error");
+                }
             }
 
             public void connectionLost(Throwable cause) {
@@ -94,7 +116,6 @@ public class Subscriber extends Thread {
         });
         String topic = "$SYS/#";
         int qos = 2;
-        System.out.println("test");
         client.subscribe(topic, qos);
     }
 }

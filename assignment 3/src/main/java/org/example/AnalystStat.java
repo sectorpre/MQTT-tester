@@ -34,9 +34,9 @@ public class AnalystStat {
     }
 
     public String printAllStats() {
-        return String.format("%d,%.2f,%s%.2f",
+        return String.format("%d,%d,%s%d",
                 this.getRateOfReceive((int) (Publisher.duration/1000)),
-                ((double) this.rateOfOutOfOrder/(double) this.totaMessageCount),
+                this.rateOfOutOfOrder,
                 this.getAllMedians(),
                 this.getMessageLoss());
 
@@ -56,13 +56,13 @@ public class AnalystStat {
         return returnVal;
     }
 
-    public double getMessageLoss() {
+    public int getMessageLoss() {
         int totalMessagesSent = 0;
         for (var p: eachPubCount) {
             totalMessagesSent += p + 1;
         }
         //System.out.printf("sent messages:%d - received messages:%d ", totalMessagesSent, totaMessageCount);
-        return ((double) (totalMessagesSent - totaMessageCount) / totalMessagesSent);
+        return totalMessagesSent - totaMessageCount ;
     }
 
 

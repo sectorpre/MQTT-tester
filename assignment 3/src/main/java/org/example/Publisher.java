@@ -25,9 +25,9 @@ public class Publisher extends Thread {
     static long duration = 60 * 1000;
 
 
-    String broker = "tcp://127.0.0.1:1883";
+    static String broker = "tcp://127.0.0.1:1883";
     String username = "admin";
-    String password = "password";
+    String password = "ioSDYQY62u";
     int id;
     Stack<PubCommand> commandStack = new Stack<>();
 

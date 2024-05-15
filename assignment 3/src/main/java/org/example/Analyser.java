@@ -26,12 +26,14 @@ public class Analyser {
 
     static String broker = "tcp://127.0.0.1:1883";
     static String username = "admin";
-    static String password = "password";
+    static String password = "ioSDYQY62u";
     static String clientid = "analyser";
 
     public static void subscribeTopics( PubCommand pubc, MqttClient client, Integer subscribeQos) throws MqttException {
         for (int k = 1; k <= pubc.instanceCount; k++) {
             //counter/<instance>/<qos>/<delay>
+            //redelivery of packet error 2006 receiving from: counter/1/2/4
+            //redelivery of packet error 0 receiving from: counter/1/0/0
             String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
             client.subscribe(topic, subscribeQos); //TODO change this to pub qos
         }
@@ -41,6 +43,7 @@ public class Analyser {
         for (int k = 1; k <= pubc.instanceCount; k++) {
             //counter/<instance>/<qos>/<delay>
             String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
+            System.out.println("unsubscribing from " + topic);
             client.unsubscribe(topic);
         }
     }
@@ -59,8 +62,7 @@ public class Analyser {
         publishCommand(command, client);
 
         Thread.sleep(Publisher.duration);
-
-        unSubscribeTopics(command,client);
+        //unSubscribeTopics(command,client);
         return stat.printAllStats();
 
     }
@@ -69,9 +71,15 @@ public class Analyser {
         // Create a Scanner object to read input from the command line
         // MQTT QoS level (0, 1 or 2), and with a
         // requested delay(0ms, 1ms, 2ms, 4ms) for 60 seconds.
+        System.out.println("please input ip address or hostname");
+        Scanner in = new Scanner(System.in);
+        String s = in.nextLine();
+        if (!s.isEmpty()) {broker = String.format("tcp://%s:1883", s);}
+
+
         String csvFile = "data.csv";
         try (FileWriter writer = new FileWriter(csvFile)) {
-            String[] columns = new String[]{"delay", "qos", "instance-count", "subscribe qos", "average messages per second", "percentage of out of count",
+            String[] columns = new String[]{"system time","delay", "qos", "instance-count", "subscribe qos", "average messages per second", "percentage of out of count",
                     "med 1", "med 2", "med 3", "med 4", "med 5", "percentage of messages lost"};
             writer.append(String.join(",", columns));
             writer.append("\n");
@@ -80,19 +88,23 @@ public class Analyser {
         }
 
         try {
-                MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
+            //counter/<instance>/<qos>/<delay>
                 for (int k = 1; k <= 5; k++) {
                     for (int qos = 0; qos < 3; qos ++) {
                         for (int subscribeQos = 0; subscribeQos < 3; subscribeQos ++) {
                             for (int delay = 0; delay < 5; delay ++) {
                                 if (delay == 3) {continue;}
-                                System.out.printf("running for delay:%d, QoS:%d, instance-count:%d, subscribe qos:%d\n", delay,qos,k, subscribeQos);
+                                MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
+                                System.out.printf("running for delay:%d, QoS:%d, instance-count:%d, subscribe qos:%d\n",
+                                        delay,qos,k, subscribeQos);
                                 PubCommand currPubCommand = new PubCommand(qos, delay, k);
 
                                 String outputString = receiveStats(client, currPubCommand, subscribeQos);
+                                client.disconnect();
 
                                 try (FileWriter writer = new FileWriter(csvFile, true)) {
-                                    writer.append(String.format("%d,%d,%d,%d,%s\n", delay, qos, k ,subscribeQos, outputString));
+                                    writer.append(String.format("%s,%d,%d,%d,%d,%s\n", java.time.LocalDateTime.now(),
+                                            delay, qos, k ,subscribeQos, outputString));
                                 }
                                 catch (IOException e) {
                                     System.out.println("unable to write to file error");

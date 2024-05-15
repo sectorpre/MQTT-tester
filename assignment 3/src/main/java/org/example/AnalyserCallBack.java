@@ -21,7 +21,7 @@ public class AnalyserCallBack implements MqttCallback {
         int currentPub = Integer.parseInt(topic.substring(8,9)) - 1;
 
         if (stat.eachPubCount[currentPub] + 1 != count) {
-            System.out.println("redelivery of packet error " + count + " start: " + startOfOUTCOUNT);
+            System.out.println("redelivery of packet error " + count + " receiving from: " + topic);
             stat.rateOfOutOfOrder += 1;
             stat.eachPubCount[currentPub] = count;
             return;
