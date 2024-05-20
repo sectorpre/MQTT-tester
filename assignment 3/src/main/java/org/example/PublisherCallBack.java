@@ -15,17 +15,14 @@ public class PublisherCallBack implements MqttCallback {
     PubCommand currentCommand;
 
     public void connectionLost(Throwable cause) {
+
         System.out.println("connectionLost: " + cause.getMessage());
+        commandStack.push(new PubCommand(1));
     }
 
     /**
-     * Receives a message from a broker topic
-     * Determines the QoS, delay and instancecount the publisher should
-     * be publishing at.
-     *
-     * client.subscribe("request/qos", qos);
-     *             client.subscribe("request/delay", qos);
-     *             client.subscribe("request/instancecount", qos);
+     * Fills a PubCommand class based on information retrieved from broker topics
+     * and pushes it to the stack once it has been completely filled.
      * */
     public void messageArrived(String topic, MqttMessage message) {
         switch (topic) {

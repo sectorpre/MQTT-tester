@@ -5,120 +5,145 @@ import org.eclipse.paho.client.mqttv3.MqttException;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.Scanner;
 
-import static org.example.MQTTclient.createClient;
+import static org.example.MQTTclient.getHostAndPort;
 
-/**
- * our Analyser will start by publishing to the request/qos, request/delay and
- * request/instancecount topics, asking for some number of Publishers to deliver accordingly.
- * o It will then listen to the specified counter topic(s) on the broker and take measurements (below)
- * to report statistics on the performance of the publisher/broker/network combination.
- * o The measurements should be taken across the range of delay (4), QoS (3), and instance-count (5)
- * values as above, so that you can compare them; things can get weird under load.
- * o Run it with all three QoS values for the Broker->Analyser subscription as well; things can get weird
- * when the Publisher and Subscriber have very different QoS. You may need to disconnect and
- * reconnect when changing the subscription QoS.
- * o Yes, thats 3*3*4*5=180 tests, each taking 1min. Fortunately your code could do it all for you.
- * */
-public class Analyser {
-
-
+class Analyser {
     static String broker = "tcp://127.0.0.1:1883";
     static String username = "admin";
     static String password = "ioSDYQY62u";
     static String clientid = "analyser";
 
+    static long duration = 60 * 1000;
+    static int[] skipto = {0,0,0,0};
+    static int skiptoValue;
+    static String csvFile = "data.csv";
+
+    /**
+     * Function for the analyser to subscribe to the relevant topics based on a give PubCommand
+     * */
     public static void subscribeTopics( PubCommand pubc, MqttClient client, Integer subscribeQos) throws MqttException {
         for (int k = 1; k <= pubc.instanceCount; k++) {
-            //counter/<instance>/<qos>/<delay>
-            //redelivery of packet error 2006 receiving from: counter/1/2/4
-            //redelivery of packet error 0 receiving from: counter/1/0/0
             String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
-            client.subscribe(topic, subscribeQos); //TODO change this to pub qos
+            client.subscribe(topic, subscribeQos);
         }
     }
 
-    public static void unSubscribeTopics( PubCommand pubc, MqttClient client) throws MqttException {
-        for (int k = 1; k <= pubc.instanceCount; k++) {
-            //counter/<instance>/<qos>/<delay>
-            String topic = String.format("counter/%d/%d/%d",k, pubc.qos,pubc.delay);
-            System.out.println("unsubscribing from " + topic);
-            client.unsubscribe(topic);
-        }
-    }
-
+    /**
+     * Publishes a PubCommand to the relevant topics to be read by Publishers
+     * */
     public static void publishCommand(PubCommand pubc, MqttClient client) throws MqttException {
         client.publish("request/qos", Integer.toString(pubc.qos).getBytes(), 1, Boolean.FALSE);
         client.publish("request/delay", Integer.toString(pubc.delay).getBytes(), 1, Boolean.FALSE);
         client.publish("request/instancecount", Integer.toString(pubc.instanceCount).getBytes(), 1, Boolean.FALSE);
     }
 
-    public static String receiveStats(MqttClient client, PubCommand command, Integer subscribeQos) throws InterruptedException, MqttException {
+    /**
+     * Sends a Pubcommand to the relevant topics and receives data from the Broker
+     * sent to it from the publishers based on the subscribeQos. Then receives statistics
+     * from the transfer and returns it as a string.
+     * */
+    public static String receiveStats(PubCommand command, Integer subscribeQos) throws MqttException {
+        // Analyser receives statistics through this class
         AnalystStat stat = new AnalystStat();
 
+        // creates client and subscribes to relevant topics
+        MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
         client.setCallback(new AnalyserCallBack(stat));
         subscribeTopics(command, client, subscribeQos);
+
+        // publishes command to receive counter
         publishCommand(command, client);
 
-        Thread.sleep(Publisher.duration);
-        //unSubscribeTopics(command,client);
-        return stat.printAllStats();
+        long startTime = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTime < duration) {
+
+            // if at any point the analyser disconnects, attempts to reconnect and start from where it left off
+            if (stat.disconnect == 1) {
+                client = MQTTclient.createClient(broker, clientid, username, password);
+                client.setCallback(new AnalyserCallBack(stat));
+                subscribeTopics(command, client, subscribeQos);
+                stat.disconnect = 0;
+            }
+        }
+
+        client.disconnect();
+        return stat.getAllStats();
 
     }
 
-    public static void main(String[] args) {
-        // Create a Scanner object to read input from the command line
-        // MQTT QoS level (0, 1 or 2), and with a
-        // requested delay(0ms, 1ms, 2ms, 4ms) for 60 seconds.
-        System.out.println("please input ip address or hostname");
-        Scanner in = new Scanner(System.in);
-        String s = in.nextLine();
-        if (!s.isEmpty()) {broker = String.format("tcp://%s:1883", s);}
+    /**
+     * Calculates a "skip value" a point within the execution that the Analyser should start executing from
+     * */
+    public static int calculateSkip(int instance, int qos, int subscribeQos, int delay) {
+        int value = instance * 1000 + qos * 100 + subscribeQos * 10 + delay;
+        return value;
+    }
 
+    /**
+     * Initializes the Analyser. Called once every execution.
+     * */
+    public static void initialize() {
+        // which calculates which sequence to skip to
+        skiptoValue = calculateSkip(skipto[0], skipto[1], skipto[2], skipto[3]);
+        broker = getHostAndPort();
 
-        String csvFile = "data.csv";
+        // intialize headers for file to be written to
         try (FileWriter writer = new FileWriter(csvFile)) {
-            String[] columns = new String[]{"system time","delay", "qos", "instance-count", "subscribe qos", "average messages per second", "percentage of out of count",
-                    "med 1", "med 2", "med 3", "med 4", "med 5", "percentage of messages lost"};
+            String[] columns = new String[]{"system time","delay", "qos", "instance-count", "subscribe qos", "average messages per second", "number of out of count",
+                    "med 1", "med 2", "med 3", "med 4", "med 5", "number of messages lost", "lost connection"};
             writer.append(String.join(",", columns));
             writer.append("\n");
         }
         catch (IOException e) {
         }
+    }
 
-        try {
-            //counter/<instance>/<qos>/<delay>
-                for (int k = 1; k <= 5; k++) {
-                    for (int qos = 0; qos < 3; qos ++) {
-                        for (int subscribeQos = 0; subscribeQos < 3; subscribeQos ++) {
-                            for (int delay = 0; delay < 5; delay ++) {
-                                if (delay == 3) {continue;}
-                                MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
-                                System.out.printf("running for delay:%d, QoS:%d, instance-count:%d, subscribe qos:%d\n",
-                                        delay,qos,k, subscribeQos);
-                                PubCommand currPubCommand = new PubCommand(qos, delay, k);
+    /**
+     * Continuously calls receiveStats on a desired sequence of instance-count, qos, subcribeQos, delay
+     * and writes the data received into the specified csvfile
+     * */
+    public static void runloop() throws MqttException, InterruptedException {
+        for (int k = 1; k <= 5; k++) {
+            for (int qos = 0; qos < 3; qos ++) {
+                for (int subscribeQos = 0; subscribeQos < 3; subscribeQos ++) {
+                    for (int delay = 0; delay < 5; delay ++) {
+                        if (delay == 3) {continue;}
+                        if (calculateSkip(k, qos, subscribeQos,delay) < skiptoValue) {continue;}
 
-                                String outputString = receiveStats(client, currPubCommand, subscribeQos);
-                                client.disconnect();
+                        // acts as a checkpoint to ensure that the code executes from this point onwards
+                        // if it were to be interrupted unexpectedly
+                        skiptoValue = calculateSkip(k, qos, subscribeQos, delay);
+                        System.out.printf("running for delay:%d, QoS:%d, instance-count:%d, subscribe qos:%d\n",
+                                delay,qos,k, subscribeQos);
 
-                                try (FileWriter writer = new FileWriter(csvFile, true)) {
-                                    writer.append(String.format("%s,%d,%d,%d,%d,%s\n", java.time.LocalDateTime.now(),
-                                            delay, qos, k ,subscribeQos, outputString));
-                                }
-                                catch (IOException e) {
-                                    System.out.println("unable to write to file error");
-                                }
-                            }
+                        // receive statistics to be written to csv file
+                        PubCommand currPubCommand = new PubCommand(qos, delay, k);
+                        String outputString = receiveStats(currPubCommand, subscribeQos);
+
+                        // write a line to csv file
+                        try (FileWriter writer = new FileWriter(csvFile, true)) {
+                            writer.append(String.format("%s,%d,%d,%d,%d,%s\n", java.time.LocalDateTime.now(),
+                                    delay, qos, k ,subscribeQos, outputString));
+                        }
+                        catch (IOException e) {
+                            System.out.println("unable to write to file error");
                         }
                     }
-
                 }
             }
-        catch (MqttException e) {
-            throw new RuntimeException(e);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+
+        }
+
+    }
+
+    public static void main(String[] args) {
+        initialize();
+        while(true) {
+            try {runloop();}
+            catch (MqttException | InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 }

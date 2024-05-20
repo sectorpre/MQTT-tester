@@ -2,24 +2,12 @@ package org.example;
 
 import org.eclipse.paho.client.mqttv3.*;
 
-import java.util.Queue;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.Stack;
 
-/**
- * A Publisher will first subscribe (listen) to a set of ‘request’ topics, namely request/qos,
- * request/delay and request/instancecount. When it sees new values for these, it will start
- * publishing accordingly.
- * o You will have 5 instances of a Publisher running at the same time, called pub-1 to pub-5. These will
- * help stress the broker (and network, if you have separate computers). The ‘instancecount’ will tell
- * you how many publishers should be active, while the rest should keep quiet.
- * o Each Publisher will send a sequence of simple message to the broker, namely an incrementing
- * counter (0, 1, 2, 3, …). It will publish those messages to the broker at a requested MQTT QoS level
- * (0, 1 or 2), and with a requested delay between messages (0ms, 1ms, 2ms, 4ms) for 60 seconds.
- * o Each Publisher will publish to the topic counter/<instance>/<qos>/<delay>, so e.g. counter/1/0/4
- * is the messages coming from Publisher-instance-1 at qos=0 and delay=4.
- * o After it has finished its 60sec burst of messages, each Publisher should go back to listening to the
- * ‘request’ topics for the next round of instructions.
- * */
+import static org.example.MQTTclient.getHostAndPort;
+
 
 public class Publisher extends Thread {
     static long duration = 60 * 1000;
@@ -29,27 +17,66 @@ public class Publisher extends Thread {
     String username = "admin";
     String password = "ioSDYQY62u";
     int id;
+    String csvFile;
+    String clientid;
     Stack<PubCommand> commandStack = new Stack<>();
+    int fileIntialized = 0;
 
     public Publisher(int id) {
         this.id = id;
+        this.csvFile = String.format("pub-%s.csv", id);
+        this.clientid = String.format("pub-%s", id);
     }
 
+    /**
+     * Subscribees the client to the relevant topics to receive commands from
+     * */
     public void multipleSub(MqttClient client) throws MqttException {
         client.subscribe("request/qos", 0);
         client.subscribe("request/delay", 0);
         client.subscribe("request/instancecount", 0);
     }
 
+    /**
+     * Initializes file to write statistics to with the relevant headers
+     * */
+    public void initializeFile() {
+        String csvFile = String.format("pub-%s.csv", id);
+        try (FileWriter writer = new FileWriter(csvFile)) {
+            String[] columns = new String[]{"system time","delay", "qos", "total messages sent"};
+            writer.append(String.join(",", columns));
+            writer.append("\n");
+        }
+        catch (IOException e) {
+        }
+    }
 
+    /**
+     * initializes client
+     * */
+    public MqttClient initializeClient() throws MqttException {
+        MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
+        client.setCallback(new PublisherCallBack(commandStack));
+        multipleSub(client);
+        return client;
+    }
+
+    /**
+     * Thread process that will be run continuously. First subscribes to the relevant topics
+     * to receive commands from. When a command is pushed to the commandStack, it is popped off
+     * and the function sends messages containing an incrementing counter to the a desired MQTT topic.
+     * After the timer has run out, it writes a new entry to a csv file and waits for more commands to
+     * to come in.
+     * */
     public void run() {
-        String clientid = String.format("pub-%s", id);
         try {
-            MqttClient client = MQTTclient.createClient(broker, clientid, username, password);
-            client.setCallback(new PublisherCallBack(commandStack));
-            multipleSub(client);
-
+            if (fileIntialized == 0) {
+                initializeFile();
+                fileIntialized = 1;
+            }
             System.out.printf("I am publisher %d\n", id);
+
+            MqttClient client = initializeClient();
             PubCommand currentCommand;
             while (true) {
                 Thread.sleep(1);
@@ -58,35 +85,52 @@ public class Publisher extends Thread {
                 if (!commandStack.isEmpty()) {
                     currentCommand = commandStack.pop();
 
-                    // command listed is not for it
-                    if (currentCommand.instanceCount < id) {continue;}
-
-                    System.out.println(id + ": message received");
-
-                    // destination as listed in the command
-                    String destination = String.format("counter/%d/%d/%d", id, currentCommand.qos, currentCommand.delay);
-
-                    long startTime = System.currentTimeMillis();
-
-                    int counter = 0;
-                    while (System.currentTimeMillis() - startTime < duration) {
-                        MqttTopic mqttTopic = client.getTopic(destination);
-                        mqttTopic.publish(Integer.toString(counter).getBytes(), 0, false);
-                        Thread.sleep(currentCommand.delay);
-                        counter += 1;
+                    //client has disconnected
+                    if (currentCommand.error == 1) {
+                        client = initializeClient();
+                        continue;
                     }
 
-                    System.out.println(id + " finished publishing: " + counter);
+                    int counter = 0;
+                    // if command is for this publisher
+                    if (currentCommand.instanceCount >= id) {
+                        // destination as listed in the command
+                        String destination = String.format("counter/%d/%d/%d", id, currentCommand.qos, currentCommand.delay);
+                        MqttTopic mqttTopic = client.getTopic(destination);
+
+                        // publishes counter for duration as specified
+                        long startTime = System.currentTimeMillis();
+                        while (System.currentTimeMillis() - startTime < duration) {
+                            mqttTopic.publish(Integer.toString(counter).getBytes(), 0, false);
+                            Thread.sleep(currentCommand.delay);
+                            counter += 1;
+                        }
+                    }
+                    try (FileWriter writer = new FileWriter(csvFile, true)) {
+                        writer.append(String.format("%s,%d,%d,%d\n", java.time.LocalDateTime.now(), currentCommand.delay, currentCommand.qos, counter));
+                    }
+                    catch (IOException e) {
+                        System.out.println("unable to write to file error");
+                    }
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
+            run();
         }
 
     }
 
+    /**
+     * Starts 5 Publishers
+     * */
     public static void main(String[] args) {
-        Publisher pub1 = new Publisher(1);
-        pub1.run();
+        broker = getHostAndPort();
+
+        Publisher[] pubs = new Publisher[5];
+        for (int k = 1; k < 6; k++) {
+            pubs[k-1] = new Publisher(k);
+            pubs[k-1].start();
+        }
     }
 }
