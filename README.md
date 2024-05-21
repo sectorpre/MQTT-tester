@@ -1,4 +1,6 @@
 # MQTT-tester
+Csv files generated for my execution of the program is within assignment\ 3/
+
 To run the code
 1) cd assignment\ 3/
 2) mvn package
