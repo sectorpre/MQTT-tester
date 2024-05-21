@@ -8,7 +8,7 @@ import java.io.IOException;
 
 import static org.example.MQTTclient.getHostAndPort;
 
-class Analyser {
+public class Analyser {
     static String broker = "tcp://127.0.0.1:1883";
     static String username = "admin";
     static String password = "ioSDYQY62u";
